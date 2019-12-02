@@ -6,12 +6,13 @@
 #include <utility>
 #include <iterator>
 #include <type_traits>
+#include <algorithm>
 
 #include <iostream>
 
 namespace {
 const size_t initial_table_size = 16;
-const double fullness_threshold = 0.5;
+const double fullness_threshold = 0.3;
 const size_t index_step = 1;
 }  // namespace
 
@@ -71,6 +72,10 @@ private:
         size_t hash;
 
         TableItem() {
+        }
+
+        TableItem(const TableItem& rhs)
+            : value(rhs.value.value()), key(rhs.key.value()), hash(rhs.hash) {
         }
     };
 
@@ -136,13 +141,58 @@ private:
     }
 
 public:
-    Hashtable(const HasherType& hasher = std::hash<KeyType>(),
-              const ComparatorType& comparator = std::equal_to<KeyType>())
+    Hashtable()
         : table_(nullptr),
           table_size_(0),
           table_fullness_(0),
-          hasher_(hasher),
-          comparator_(comparator) {
+          hasher_(HasherType()),
+          comparator_(ComparatorType()) {
+    }
+
+    Hashtable(size_t size)
+        : table_size_(size),
+          table_fullness_(0),
+          hasher_(HasherType()),
+          comparator_(ComparatorType()) {
+        table_ = new TableItem[table_size_];
+    }
+
+    Hashtable(std::initializer_list<std::pair<KeyType, ValueType>> list)
+        : table_(nullptr),
+          table_size_(0),
+          table_fullness_(0),
+          hasher_(HasherType()),
+          comparator_(ComparatorType()) {
+        for (const auto& [key, value] : list) {
+            Insert(key, value);
+        }
+    }
+
+    Hashtable(const Hashtable<KeyType, ValueType, HasherType, ComparatorType>&
+                  table) {
+        comparator_ = table.comparator_;
+        hasher_ = table.hasher_;
+        table_size_ = table.table_size_;
+        table_fullness_ = table.table_fullness_;
+        table_ = new TableItem[table_size_];
+        for (size_t i = 0; i < table_size_; ++i) {
+            if (table.table_[i].key) {
+                table_[i] = table.table_[i];
+            }
+        }
+    }
+
+    Hashtable(Hashtable<KeyType, ValueType, HasherType, ComparatorType>&& table)
+        : table_(nullptr),
+          table_size_(0),
+          table_fullness_(0),
+          hasher_(std::hash<KeyType>()),
+          comparator_(std::equal_to<KeyType>()) {
+        std::swap(comparator_, table.comparator_);
+        std::swap(hasher_, table.hasher_);
+        std::swap(table_size_, table.table_size_);
+        std::swap(table_fullness_, table.table_fullness_);
+        std::swap(table_, table.table_);
     }
 
     ~Hashtable() {
@@ -163,13 +213,18 @@ public:
         size_t key_hash = hasher_(key);
         size_t index = key_hash % table_size_;
         while (table_[index].key) {
+            if ((table_[index].hash == key_hash) &&
+                comparator_(key, table_[index].key.value())) {
+                return {Iterator<TableItem>(table_ + table_size_,
+                                            table_ + table_size_),
+                        false};
+            }
             index += index_step;
             index %= table_size_;
         }
 
-        // std::cout << "[ins] " << key << ' ' << index << '\n';
-        table_[index].value = std::move(value);
-        table_[index].key = std::move(key);
+        table_[index].value.emplace(value);
+        table_[index].key.emplace(key);
         table_[index].hash = key_hash;
         ++table_fullness_;
 
@@ -184,6 +239,15 @@ public:
         return ++iterator;
     }
 
+    Iterator<TableItem> Erase(const KeyType& key) {
+        TableItem* item = FindPtr(key);
+        item->key = std::optional<KeyType>();
+        item->value = std::optional<ValueType>();
+        --table_fullness_;
+        Iterator<TableItem> result{item, table_ + table_size_};
+        return ++result;
+    }
+
     Iterator<TableItem> Find(const KeyType& key) {
         return Iterator<TableItem>(FindPtr(key), table_ + table_size_);
     }
@@ -195,7 +259,6 @@ public:
     ValueType& operator[](const KeyType& key) {
         TableItem* found = FindPtr(key);
         if (found == table_ + table_size_) {
-            // std::cout << "not found\n";
             std::pair<Iterator<TableItem>, bool> result =
                 Insert(key, ValueType());
             found = result.first.item_;
@@ -220,7 +283,7 @@ public:
         return Iterator<const TableItem>(EndPtr(), table_ + table_size_);
     }
 
-    auto begin() {  // NOLINT
+    Iterator<TableItem> begin() {  // NOLINT
         return Begin();
     }
 

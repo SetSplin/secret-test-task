@@ -28,3 +28,7 @@ There are some `make` targets:
 - `lint`. Lint `hashtable.h`
 - `all`. Compile and run `dist/run_tests`
 - `coverage`. Analyze test coverage. Generates `dist/result.html` and outputs coverage percentage
+
+## Performance
+I use `perf` and Brendan Gregg's [Flame Graphs](http://www.brendangregg.com/overview.html)
+You can find perf tests in `perf` branch.

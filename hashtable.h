@@ -14,6 +14,8 @@ namespace {
 const size_t initial_table_size = 16;
 const double fullness_threshold = 0.3;
 const size_t index_step = 1;
+const size_t steps[] = {1, 3, 7, 11, 13, 17, 19};
+const size_t steps_len = 7;
 }  // namespace
 
 template <class KeyType, class ValueType, class HasherType = std::hash<KeyType>,
@@ -82,6 +84,7 @@ private:
     TableItem* table_;
     size_t table_size_;
     size_t table_fullness_;
+    size_t next_goal_;
 
     HasherType hasher_;
     ComparatorType comparator_;
@@ -90,6 +93,7 @@ private:
         if (table_size_ == 0) {
             table_size_ = initial_table_size;
             table_ = new TableItem[table_size_];
+            next_goal_ = table_size_ * fullness_threshold;
             return;
         }
 
@@ -106,6 +110,7 @@ private:
         }
 
         delete[] old_table;
+        next_goal_ = table_size_ * fullness_threshold;
     }
 
     TableItem* FindPtr(const KeyType& key) const {
@@ -115,9 +120,10 @@ private:
 
         size_t key_hash = hasher_(key);
         size_t index = key_hash % table_size_;
+        size_t step = steps[index % steps_len];
         while (table_[index].key && (table_[index].hash != key_hash) &&
                !comparator_(key, table_[index].key.value())) {
-            index += index_step;
+            index += step;
             index %= table_size_;
         }
 
@@ -145,6 +151,7 @@ public:
         : table_(nullptr),
           table_size_(0),
           table_fullness_(0),
+          next_goal_(0),
           hasher_(HasherType()),
           comparator_(ComparatorType()) {
     }
@@ -152,6 +159,7 @@ public:
     Hashtable(size_t size)
         : table_size_(size),
           table_fullness_(0),
+          next_goal_(0),
           hasher_(HasherType()),
           comparator_(ComparatorType()) {
         table_ = new TableItem[table_size_];
@@ -161,6 +169,7 @@ public:
         : table_(nullptr),
           table_size_(0),
           table_fullness_(0),
+          next_goal_(0),
           hasher_(HasherType()),
           comparator_(ComparatorType()) {
         for (const auto& [key, value] : list) {
@@ -174,6 +183,7 @@ public:
         hasher_ = table.hasher_;
         table_size_ = table.table_size_;
         table_fullness_ = table.table_fullness_;
+        next_goal_ = table.next_goal_;
         table_ = new TableItem[table_size_];
         for (size_t i = 0; i < table_size_; ++i) {
             if (table.table_[i].key) {
@@ -186,11 +196,13 @@ public:
         : table_(nullptr),
           table_size_(0),
           table_fullness_(0),
+          next_goal_(0),
           hasher_(std::hash<KeyType>()),
           comparator_(std::equal_to<KeyType>()) {
         std::swap(comparator_, table.comparator_);
         std::swap(hasher_, table.hasher_);
         std::swap(table_size_, table.table_size_);
+        std::swap(next_goal_, table.next_goal_);
         std::swap(table_fullness_, table.table_fullness_);
         std::swap(table_, table.table_);
     }
@@ -205,13 +217,12 @@ public:
 
     std::pair<Iterator<TableItem>, bool> Insert(const KeyType& key,
                                                 const ValueType& value) {
-        if ((table_size_ == 0) ||
-            (static_cast<double>(table_fullness_) / table_size_ >
-             fullness_threshold)) {
+        if ((table_size_ == 0) || (table_fullness_ > next_goal_)) {
             RelocateTable();
         }
         size_t key_hash = hasher_(key);
         size_t index = key_hash % table_size_;
+        size_t step = steps[index % steps_len];
         while (table_[index].key) {
             if ((table_[index].hash == key_hash) &&
                 comparator_(key, table_[index].key.value())) {
@@ -219,7 +230,7 @@ public:
                                             table_ + table_size_),
                         false};
             }
-            index += index_step;
+            index += step;
             index %= table_size_;
         }
 
